@@ -1,11 +1,15 @@
-// index.js
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const app = express();
-require("dotenv").config();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
+// ✅ Initialize Stripe AFTER dotenv is loaded
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
 const port = process.env.PORT || 3000;
+
+// ... rest of your code stays the same
 
 // Middleware
 app.use(cors());
@@ -303,6 +307,45 @@ async function run() {
         res.status(500).send({ message: "Failed to update request" });
       }
     });
+
+    /* ===================== STRIPE PAYMENT ===================== */
+
+    // Create payment intent
+    app.post("/create-payment-intent", async (req, res) => {
+      const { amount } = req.body; // amount in dollars
+
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: Math.round(amount * 100), // Convert to cents
+          currency: "usd",
+          payment_method_types: ["card"],
+        });
+
+        res.send({
+          clientSecret: paymentIntent.client_secret,
+        });
+      } catch (error) {
+        console.error("Payment intent error:", error);
+        res.status(500).send({ error: error.message });
+      }
+    });
+
+    // Save payment history
+    app.post("/payment-history", async (req, res) => {
+      const paymentData = req.body;
+
+      try {
+        const paymentHistoryCollection = db.collection("payment_history");
+        const result = await paymentHistoryCollection.insertOne(paymentData);
+        res.send({ insertedId: result.insertedId });
+      } catch (error) {
+        res.status(500).send({ error: error.message });
+      }
+    });
+
+    // Ping DB
+    await client.db("admin").command({ ping: 1 });
+    console.log("MongoDB connected");
 
     // Ping DB
     await client.db("admin").command({ ping: 1 });
