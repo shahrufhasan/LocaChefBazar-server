@@ -24,7 +24,6 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    // Connect client
     await client.connect();
 
     const db = client.db("LocalChefBazarDB");
@@ -34,7 +33,8 @@ async function run() {
     const usersCollection = db.collection("users");
     const reviewsCollection = db.collection("reviews");
     const favoritesCollection = db.collection("favorites");
-    const ordersCollection = db.collection("order_collection");
+    const ordersCollection = db.collection("orders");
+    const requestsCollection = db.collection("requests");
     // =======================
 
     // Meals API
@@ -62,16 +62,13 @@ async function run() {
     // Users API
     app.post("/users", async (req, res) => {
       try {
-        const user = req.body; // { name, email, photoURL, address, role }
-
-        // Check if user already exists
+        const user = req.body;
         const existingUser = await usersCollection.findOne({
           email: user.email,
         });
         if (existingUser) {
           return res.status(409).send({ message: "User already exists" });
         }
-
         const result = await usersCollection.insertOne(user);
         res.send({ insertedId: result.insertedId });
       } catch (err) {
@@ -83,8 +80,11 @@ async function run() {
     // Reviews API
     app.get("/reviews", async (req, res) => {
       try {
-        const { foodId } = req.query;
-        const reviews = await reviewsCollection.find({ foodId }).toArray();
+        const { foodId, reviewerEmail } = req.query;
+        const query = {};
+        if (foodId) query.foodId = foodId;
+        if (reviewerEmail) query.reviewerEmail = reviewerEmail;
+        const reviews = await reviewsCollection.find(query).toArray();
         res.send(reviews);
       } catch (err) {
         console.error(err);
@@ -94,7 +94,7 @@ async function run() {
 
     app.post("/reviews", async (req, res) => {
       try {
-        const review = req.body; // foodId, reviewerName, reviewerImage, rating, comment, date
+        const review = req.body;
         const result = await reviewsCollection.insertOne(review);
         res.send({ insertedId: result.insertedId });
       } catch (err) {
@@ -104,20 +104,30 @@ async function run() {
     });
 
     // Favorites API
+    app.get("/favorites", async (req, res) => {
+      try {
+        const { userEmail } = req.query;
+        if (!userEmail)
+          return res.status(400).send({ message: "userEmail required" });
+        const favorites = await favoritesCollection
+          .find({ userEmail })
+          .toArray();
+        res.send(favorites);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Server error" });
+      }
+    });
+
     app.post("/favorites", async (req, res) => {
       try {
-        const favorite = req.body; // userEmail, mealId, mealName, chefId, chefName, price, addedTime
-
-        // check if already exists
+        const favorite = req.body;
         const exists = await favoritesCollection.findOne({
           userEmail: favorite.userEmail,
           mealId: favorite.mealId,
         });
-
-        if (exists) {
+        if (exists)
           return res.status(409).send({ message: "Meal already in favorites" });
-        }
-
         const result = await favoritesCollection.insertOne(favorite);
         res.send({ insertedId: result.insertedId });
       } catch (err) {
@@ -126,11 +136,36 @@ async function run() {
       }
     });
 
-    // Orders Api
+    // Orders API
     app.post("/orders", async (req, res) => {
       try {
-        const order = req.body; // full order data
+        const order = req.body;
         const result = await ordersCollection.insertOne(order);
+        res.send({ insertedId: result.insertedId });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Server error" });
+      }
+    });
+
+    app.get("/orders", async (req, res) => {
+      try {
+        const { userEmail } = req.query;
+        if (!userEmail)
+          return res.status(400).send({ message: "userEmail required" });
+        const orders = await ordersCollection.find({ userEmail }).toArray();
+        res.send(orders);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Server error" });
+      }
+    });
+
+    // Requests API
+    app.post("/requests", async (req, res) => {
+      try {
+        const request = req.body;
+        const result = await requestsCollection.insertOne(request);
         res.send({ insertedId: result.insertedId });
       } catch (err) {
         console.error(err);
@@ -142,7 +177,7 @@ async function run() {
     await client.db("admin").command({ ping: 1 });
     console.log("Connected to MongoDB successfully!");
   } finally {
-    // Do not close client to keep server running
+    // Do not close client
   }
 }
 
