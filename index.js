@@ -1,18 +1,18 @@
+// index.js
 const express = require("express");
 const cors = require("cors");
+const app = express();
 require("dotenv").config();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
-const app = express();
 const port = process.env.PORT || 3000;
 
-// -------------------- Middleware --------------------
+// Middleware
 app.use(cors());
 app.use(express.json());
 
-// -------------------- MongoDB --------------------
+// MongoDB URI
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.cnv9fix.mongodb.net/?appName=Cluster0`;
-
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -26,33 +26,33 @@ async function run() {
     await client.connect();
     const db = client.db("LocalChefBazarDB");
 
-    // -------------------- Collections --------------------
+    // Collections
     const mealsCollection = db.collection("meals");
     const usersCollection = db.collection("users");
-    const ordersCollection = db.collection("orders");
     const reviewsCollection = db.collection("reviews");
     const favoritesCollection = db.collection("favorites");
+    const ordersCollection = db.collection("orders");
     const requestsCollection = db.collection("requests");
 
-    // ====================================================
-    // ===================== USERS ========================
-    // ====================================================
+    // ---------- Meals API ----------
+    app.get("/meals", async (req, res) => {
+      const meals = await mealsCollection.find().toArray();
+      res.send(meals);
+    });
 
+    app.post("/meals", async (req, res) => {
+      const meal = req.body;
+      const result = await mealsCollection.insertOne(meal);
+      res.send(result);
+    });
+
+    // ---------- Users API ----------
     app.post("/users", async (req, res) => {
       const user = req.body;
-      const existingUser = await usersCollection.findOne({
-        email: user.email,
-      });
-
-      if (existingUser) {
-        return res.send({ message: "User already exists" });
-      }
-
-      user.role = "user";
-      user.status = "active";
-
+      const existingUser = await usersCollection.findOne({ email: user.email });
+      if (existingUser) return res.status(409).send({ message: "User exists" });
       const result = await usersCollection.insertOne(user);
-      res.send(result);
+      res.send({ insertedId: result.insertedId });
     });
 
     app.get("/users", async (req, res) => {
@@ -60,193 +60,126 @@ async function run() {
       res.send(users);
     });
 
-    app.get("/users/:email", async (req, res) => {
-      const user = await usersCollection.findOne({
-        email: req.params.email,
-      });
-      res.send(user);
-    });
-
+    // Update user role/status
     app.patch("/users/:email/role", async (req, res) => {
+      const { email } = req.params;
       const { role, status, chefId } = req.body;
-
-      const updateDoc = {
-        $set: {
-          role,
-          status,
-        },
-      };
-
-      if (chefId) updateDoc.$set.chefId = chefId;
+      const updateFields = {};
+      if (role) updateFields.role = role;
+      if (status) updateFields.status = status;
+      if (chefId) updateFields.chefId = chefId;
 
       const result = await usersCollection.updateOne(
-        { email: req.params.email },
-        updateDoc
+        { email },
+        { $set: updateFields }
       );
-
-      res.send(result);
+      if (result.modifiedCount === 1) res.send({ message: "User updated" });
+      else res.status(404).send({ message: "User not found" });
     });
 
-    // ====================================================
-    // ===================== MEALS ========================
-    // ====================================================
-
-    app.get("/meals", async (req, res) => {
-      const meals = await mealsCollection.find().toArray();
-      res.send(meals);
-    });
-
-    app.get("/meals/:id", async (req, res) => {
-      const meal = await mealsCollection.findOne({
-        _id: new ObjectId(req.params.id),
-      });
-      res.send(meal);
-    });
-
-    app.post("/meals", async (req, res) => {
-      const meal = req.body;
-      meal.price = Number(meal.price); // IMPORTANT FIX
-      const result = await mealsCollection.insertOne(meal);
-      res.send(result);
-    });
-
-    // ====================================================
-    // ===================== ORDERS =======================
-    // ====================================================
-
-    app.post("/orders", async (req, res) => {
-      const order = req.body;
-      order.orderTime = new Date().toISOString();
-      const result = await ordersCollection.insertOne(order);
-      res.send(result);
-    });
-
-    app.get("/orders", async (req, res) => {
-      const { userEmail } = req.query;
-      const query = userEmail ? { userEmail } : {};
-      const orders = await ordersCollection.find(query).toArray();
-      res.send(orders);
-    });
-
-    // ====================================================
-    // ===================== REVIEWS ======================
-    // ====================================================
-
-    app.post("/reviews", async (req, res) => {
-      const review = req.body;
-      review.createdAt = new Date().toISOString();
-      const result = await reviewsCollection.insertOne(review);
-      res.send(result);
-    });
-
+    // ---------- Reviews API ----------
     app.get("/reviews", async (req, res) => {
       const { foodId, reviewerEmail } = req.query;
       const query = {};
       if (foodId) query.foodId = foodId;
       if (reviewerEmail) query.reviewerEmail = reviewerEmail;
-
       const reviews = await reviewsCollection.find(query).toArray();
       res.send(reviews);
     });
 
-    // ====================================================
-    // ===================== FAVORITES ====================
-    // ====================================================
-
-    app.post("/favorites", async (req, res) => {
-      const favorite = req.body;
-
-      const exists = await favoritesCollection.findOne({
-        userEmail: favorite.userEmail,
-        mealId: favorite.mealId,
-      });
-
-      if (exists) {
-        return res.status(409).send({ message: "Already in favorites" });
-      }
-
-      const result = await favoritesCollection.insertOne(favorite);
-      res.send(result);
+    app.post("/reviews", async (req, res) => {
+      const review = req.body;
+      const result = await reviewsCollection.insertOne(review);
+      res.send({ insertedId: result.insertedId });
     });
 
+    // ---------- Favorites API ----------
     app.get("/favorites", async (req, res) => {
       const { userEmail } = req.query;
       const favorites = await favoritesCollection.find({ userEmail }).toArray();
       res.send(favorites);
     });
 
-    // ====================================================
-    // ===================== REQUESTS =====================
-    // ====================================================
-
-    app.post("/requests", async (req, res) => {
-      const request = req.body;
-
-      request.requestStatus = "pending";
-      request.requestTime = new Date().toISOString();
-
-      const result = await requestsCollection.insertOne(request);
-      res.send(result);
+    app.post("/favorites", async (req, res) => {
+      const favorite = req.body;
+      const exists = await favoritesCollection.findOne({
+        userEmail: favorite.userEmail,
+        mealId: favorite.mealId,
+      });
+      if (exists) return res.status(409).send({ message: "Already favorite" });
+      const result = await favoritesCollection.insertOne(favorite);
+      res.send({ insertedId: result.insertedId });
     });
 
+    // ---------- Orders API ----------
+    app.get("/orders", async (req, res) => {
+      const { userEmail } = req.query;
+      const orders = await ordersCollection.find({ userEmail }).toArray();
+      res.send(orders);
+    });
+
+    app.post("/orders", async (req, res) => {
+      const order = req.body;
+      const result = await ordersCollection.insertOne(order);
+      res.send({ insertedId: result.insertedId });
+    });
+
+    // ---------- Requests API ----------
     app.get("/requests", async (req, res) => {
       const requests = await requestsCollection.find().toArray();
       res.send(requests);
     });
 
-    // Approve / Reject request
+    app.post("/requests", async (req, res) => {
+      const request = req.body;
+      request.requestStatus = "pending";
+      request.requestTime = new Date().toISOString();
+      const result = await requestsCollection.insertOne(request);
+      res.send({ insertedId: result.insertedId });
+    });
+
+    // Update request status (approve/reject)
     app.patch("/requests/:id", async (req, res) => {
+      const { id } = req.params;
       const { requestStatus } = req.body;
-      const id = req.params.id;
 
       const request = await requestsCollection.findOne({
         _id: new ObjectId(id),
       });
-
-      if (!request) {
+      if (!request)
         return res.status(404).send({ message: "Request not found" });
-      }
 
-      // Update request status
-      await requestsCollection.updateOne(
+      // Update request
+      const result = await requestsCollection.updateOne(
         { _id: new ObjectId(id) },
         { $set: { requestStatus } }
       );
 
-      // If approved → update user role
+      // If approved, update user role
       if (requestStatus === "approved") {
-        const updateData = {
-          role: request.requestType,
-          status: "active",
-        };
-
-        if (request.requestType === "chef") {
-          updateData.chefId = `CHEF-${Date.now()}`;
-        }
-
         await usersCollection.updateOne(
           { email: request.userEmail },
-          { $set: updateData }
+          { $set: { role: request.requestType } }
         );
       }
 
-      res.send({ modifiedCount: 1 });
+      res.send({ modifiedCount: result.modifiedCount });
     });
 
-    // ====================================================
-    console.log("MongoDB connected successfully!");
+    await client.db("admin").command({ ping: 1 });
+    console.log("Connected to MongoDB successfully!");
   } finally {
+    // keep running
   }
 }
 
 run().catch(console.dir);
 
-// -------------------- Root Route --------------------
+// Test route
 app.get("/", (req, res) => {
-  res.send("LocalChefBazar API is running ");
+  res.send("Hello LocalChefBazar!");
 });
 
-// -------------------- Server --------------------
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
