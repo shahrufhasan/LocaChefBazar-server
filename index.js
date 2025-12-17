@@ -50,6 +50,32 @@ async function run() {
       res.send({ insertedId: result.insertedId });
     });
 
+    app.delete("/meals/:id", async (req, res) => {
+      const { id } = req.params;
+      const result = await mealsCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+      res.send({ deletedCount: result.deletedCount });
+    });
+
+    app.patch("/meals/:id", async (req, res) => {
+      const { id } = req.params;
+      const updateData = req.body;
+
+      if (updateData.price) {
+        updateData.price = Number(updateData.price);
+      }
+
+      delete updateData._id;
+
+      const result = await mealsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: updateData }
+      );
+
+      res.send({ modifiedCount: result.modifiedCount });
+    });
+
     /* ===================== USERS ===================== */
 
     // Create user
