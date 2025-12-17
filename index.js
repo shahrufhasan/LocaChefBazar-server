@@ -34,6 +34,7 @@ async function run() {
     const usersCollection = db.collection("users");
     const reviewsCollection = db.collection("reviews");
     const favoritesCollection = db.collection("favorites");
+    const ordersCollection = db.collection("order_collection");
     // =======================
 
     // Meals API
@@ -118,6 +119,18 @@ async function run() {
         }
 
         const result = await favoritesCollection.insertOne(favorite);
+        res.send({ insertedId: result.insertedId });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Server error" });
+      }
+    });
+
+    // Orders Api
+    app.post("/orders", async (req, res) => {
+      try {
+        const order = req.body; // full order data
+        const result = await ordersCollection.insertOne(order);
         res.send({ insertedId: result.insertedId });
       } catch (err) {
         console.error(err);
