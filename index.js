@@ -2,7 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const app = express();
 require("dotenv").config();
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 const port = process.env.PORT || 3000;
 
@@ -25,7 +25,6 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     await client.connect();
-
     const db = client.db("LocalChefBazarDB");
 
     // ===== Collections =====
@@ -37,7 +36,7 @@ async function run() {
     const requestsCollection = db.collection("requests");
     // =======================
 
-    // Meals API
+    // -------------------- Meals API --------------------
     app.get("/meals", async (req, res) => {
       try {
         const meals = await mealsCollection.find().toArray();
@@ -59,16 +58,18 @@ async function run() {
       }
     });
 
-    // Users API
+    // -------------------- Users API --------------------
     app.post("/users", async (req, res) => {
       try {
         const user = req.body;
+
         const existingUser = await usersCollection.findOne({
           email: user.email,
         });
         if (existingUser) {
           return res.status(409).send({ message: "User already exists" });
         }
+
         const result = await usersCollection.insertOne(user);
         res.send({ insertedId: result.insertedId });
       } catch (err) {
@@ -77,7 +78,45 @@ async function run() {
       }
     });
 
-    // Reviews API
+    // Get all users (admin dashboard)
+    app.get("/users", async (req, res) => {
+      try {
+        const users = await usersCollection.find().toArray();
+        res.send(users);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Server error" });
+      }
+    });
+
+    // Update user role/status
+    app.patch("/users/:email/role", async (req, res) => {
+      try {
+        const { email } = req.params;
+        const { role, status, chefId } = req.body;
+
+        const updateFields = { role, status };
+        if (chefId) updateFields.chefId = chefId;
+
+        const result = await usersCollection.updateOne(
+          { email },
+          { $set: updateFields }
+        );
+
+        if (result.modifiedCount === 1) {
+          res.send({ message: "User role updated successfully" });
+        } else {
+          res
+            .status(404)
+            .send({ message: "User not found or already updated" });
+        }
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Server error" });
+      }
+    });
+
+    // -------------------- Reviews API --------------------
     app.get("/reviews", async (req, res) => {
       try {
         const { foodId, reviewerEmail } = req.query;
@@ -103,12 +142,10 @@ async function run() {
       }
     });
 
-    // Favorites API
+    // -------------------- Favorites API --------------------
     app.get("/favorites", async (req, res) => {
       try {
         const { userEmail } = req.query;
-        if (!userEmail)
-          return res.status(400).send({ message: "userEmail required" });
         const favorites = await favoritesCollection
           .find({ userEmail })
           .toArray();
@@ -126,8 +163,10 @@ async function run() {
           userEmail: favorite.userEmail,
           mealId: favorite.mealId,
         });
+
         if (exists)
           return res.status(409).send({ message: "Meal already in favorites" });
+
         const result = await favoritesCollection.insertOne(favorite);
         res.send({ insertedId: result.insertedId });
       } catch (err) {
@@ -136,7 +175,18 @@ async function run() {
       }
     });
 
-    // Orders API
+    // -------------------- Orders API --------------------
+    app.get("/orders", async (req, res) => {
+      try {
+        const { userEmail } = req.query;
+        const orders = await ordersCollection.find({ userEmail }).toArray();
+        res.send(orders);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Server error" });
+      }
+    });
+
     app.post("/orders", async (req, res) => {
       try {
         const order = req.body;
@@ -148,23 +198,22 @@ async function run() {
       }
     });
 
-    app.get("/orders", async (req, res) => {
+    // -------------------- Requests API --------------------
+    app.get("/requests", async (req, res) => {
       try {
-        const { userEmail } = req.query;
-        if (!userEmail)
-          return res.status(400).send({ message: "userEmail required" });
-        const orders = await ordersCollection.find({ userEmail }).toArray();
-        res.send(orders);
+        const requests = await requestsCollection.find().toArray();
+        res.send(requests);
       } catch (err) {
         console.error(err);
         res.status(500).send({ message: "Server error" });
       }
     });
 
-    // Requests API
     app.post("/requests", async (req, res) => {
       try {
         const request = req.body;
+        request.requestStatus = "pending";
+        request.requestTime = new Date().toISOString();
         const result = await requestsCollection.insertOne(request);
         res.send({ insertedId: result.insertedId });
       } catch (err) {
@@ -177,7 +226,7 @@ async function run() {
     await client.db("admin").command({ ping: 1 });
     console.log("Connected to MongoDB successfully!");
   } finally {
-    // Do not close client
+    // Keep server running
   }
 }
 
