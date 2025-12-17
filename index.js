@@ -39,8 +39,28 @@ async function run() {
 
     /* ===================== MEALS ===================== */
     app.get("/meals", async (req, res) => {
-      const meals = await mealsCollection.find().toArray();
-      res.send(meals);
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+      const skip = (page - 1) * limit;
+
+      try {
+        const meals = await mealsCollection
+          .find()
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        const totalMeals = await mealsCollection.countDocuments();
+
+        res.send({
+          meals,
+          totalMeals,
+          currentPage: page,
+          totalPages: Math.ceil(totalMeals / limit),
+        });
+      } catch (error) {
+        res.status(500).send({ message: "Failed to fetch meals" });
+      }
     });
 
     app.post("/meals", async (req, res) => {
@@ -98,6 +118,17 @@ async function run() {
       const query = email ? { email } : {};
       const users = await usersCollection.find(query).toArray();
       res.send(users);
+    });
+
+    app.patch("/users/:email/status", async (req, res) => {
+      const { email } = req.params;
+      const { status } = req.body;
+
+      const result = await usersCollection.updateOne(
+        { email },
+        { $set: { status } }
+      );
+      res.send({ modifiedCount: result.modifiedCount });
     });
 
     /* ===================== REVIEWS ===================== */
@@ -185,6 +216,28 @@ async function run() {
       res.send({ insertedId: result.insertedId });
     });
 
+    app.patch("/orders/:id", async (req, res) => {
+      const { id } = req.params;
+      const { orderStatus } = req.body;
+
+      const result = await ordersCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { orderStatus } }
+      );
+      res.send({ modifiedCount: result.modifiedCount });
+    });
+
+    app.patch("/orders/:id/payment", async (req, res) => {
+      const { id } = req.params;
+      const { paymentStatus } = req.body;
+
+      const result = await ordersCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { paymentStatus } }
+      );
+      res.send({ modifiedCount: result.modifiedCount });
+    });
+
     /* ===================== REQUESTS ===================== */
 
     // Get requests
@@ -204,42 +257,51 @@ async function run() {
       res.send({ insertedId: result.insertedId });
     });
 
-    // 🔥🔥🔥 APPROVE / REJECT + UPDATE USER ROLE 🔥🔥🔥
     app.patch("/requests/:id", async (req, res) => {
       const { id } = req.params;
       const { requestStatus } = req.body;
 
-      const request = await requestsCollection.findOne({
-        _id: new ObjectId(id),
-      });
+      try {
+        const request = await requestsCollection.findOne({
+          _id: new ObjectId(id),
+        });
 
-      if (!request) {
-        return res.status(404).send({ message: "Request not found" });
-      }
-
-      // 1️⃣ Update request status
-      await requestsCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: { requestStatus } }
-      );
-
-      // 2️⃣ If approved → update user role
-      if (requestStatus === "approved") {
-        const updateData = {
-          role: request.requestType,
-        };
-
-        if (request.requestType === "chef") {
-          updateData.chefId = `CHEF-${Date.now()}`;
+        if (!request) {
+          return res.status(404).send({ message: "Request not found" });
         }
 
-        await usersCollection.updateOne(
-          { email: request.userEmail },
-          { $set: updateData }
+        //  Update request status
+        await requestsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { requestStatus } }
         );
-      }
 
-      res.send({ modifiedCount: 1 });
+        // If approved → update user role
+        if (requestStatus === "approved") {
+          const updateData = {
+            role: request.requestType,
+          };
+
+          // Generate ChefId if request type is chef
+          if (request.requestType === "chef") {
+            const randomNum = Math.floor(1000 + Math.random() * 9000);
+            updateData.chefId = `CHEF-${randomNum}`;
+          }
+
+          await usersCollection.updateOne(
+            { email: request.userEmail },
+            { $set: updateData }
+          );
+        }
+
+        res.send({
+          modifiedCount: 1,
+          message: `Request ${requestStatus} successfully`,
+        });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Failed to update request" });
+      }
     });
 
     // Ping DB
